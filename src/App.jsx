@@ -13,6 +13,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/kriterler" element={<KriterYonetimi />} />
+          <Route path="/sablonlar" element={<KriterYonetimi />} />
           <Route path="/ev/:id" element={<EvDetay />} />
           <Route path="/karsilastirma" element={<Karsilastirma />} />
           <Route path="*" element={<Navigate to="/" replace />} />

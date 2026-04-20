@@ -1,17 +1,18 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, MapPin, DollarSign, Calendar, Trash2, ChevronRight, Home, AlertCircle } from 'lucide-react'
+import { Plus, MapPin, DollarSign, Trash2, ChevronRight, Home, AlertCircle } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { toplamPuanHesapla, skorSinifi } from '../data/kriterler'
 import SkorDairesi from '../components/SkorDairesi'
 
-function EvEkleModal({ onKapat, onEkle }) {
+function EvEkleModal({ onKapat, onEkle, sablonlar }) {
   const [form, setForm] = useState({
     ad: '',
     adres: '',
     fiyat: '',
     tip: 'satilik',
     not: '',
+    templateIds: sablonlar.length ? [sablonlar[0].id] : [],
   })
 
   const handleSubmit = (e) => {
@@ -81,6 +82,26 @@ function EvEkleModal({ onKapat, onEkle }) {
               onChange={e => setForm(p => ({ ...p, not: e.target.value }))}
             />
           </div>
+          <div>
+            <label className="label">Değerlendirme Şablonları</label>
+            <div className="space-y-2 max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2">
+              {sablonlar.map(s => (
+                <label key={s.id} className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={form.templateIds.includes(s.id)}
+                    onChange={(e) => setForm(prev => ({
+                      ...prev,
+                      templateIds: e.target.checked
+                        ? [...prev.templateIds, s.id]
+                        : prev.templateIds.filter(id => id !== s.id),
+                    }))}
+                  />
+                  {s.ad}
+                </label>
+              ))}
+            </div>
+          </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onKapat} className="btn-secondary flex-1">İptal</button>
             <button type="submit" className="btn-primary flex-1">Kaydet ve Değerlendir</button>
@@ -91,11 +112,18 @@ function EvEkleModal({ onKapat, onEkle }) {
   )
 }
 
-function EvKarti({ ev, kriterler, onSil }) {
-  const { yuzde } = toplamPuanHesapla(kriterler.filter(k => k.aktif), ev.puanlar || {})
-  const sinif = skorSinifi(yuzde)
-  const tamamlanan = Object.keys(ev.puanlar || {}).length
-  const toplam = kriterler.filter(k => k.aktif).length
+function EvKarti({ ev, kriterler, sablonlar, onSil }) {
+  const seciliSablonlar = sablonlar.filter(s => (ev.templateIds || []).includes(s.id))
+  const sablonSkorlari = seciliSablonlar.map(sablon => {
+    const sablonKriterler = kriterler.filter(k => (sablon.kriterIds || []).includes(k.id) && k.aktif)
+    const puanlar = (ev.puanlarByTemplate || {})[sablon.id] || {}
+    const skor = toplamPuanHesapla(sablonKriterler, puanlar)
+    return { sablon, skor, puanlar }
+  })
+  const ilkSkor = sablonSkorlari[0]?.skor?.yuzde || 0
+  const sinif = skorSinifi(ilkSkor)
+  const tamamlanan = sablonSkorlari.reduce((acc, item) => acc + Object.keys(item.puanlar || {}).length, 0)
+  const toplam = sablonSkorlari.reduce((acc, item) => acc + kriterler.filter(k => (item.sablon.kriterIds || []).includes(k.id) && k.aktif).length, 0)
   const ilerleme = toplam > 0 ? Math.round((tamamlanan / toplam) * 100) : 0
 
   return (
@@ -143,8 +171,12 @@ function EvKarti({ ev, kriterler, onSil }) {
           </div>
         </div>
         <div className="flex flex-col items-end gap-3">
-          {tamamlanan > 0 ? (
-            <SkorDairesi kriterler={kriterler.filter(k => k.aktif)} puanlar={ev.puanlar || {}} boyut={90} />
+          {sablonSkorlari.length > 0 ? (
+            <SkorDairesi
+              kriterler={kriterler.filter(k => sablonSkorlari[0].sablon.kriterIds?.includes(k.id) && k.aktif)}
+              puanlar={sablonSkorlari[0].puanlar || {}}
+              boyut={90}
+            />
           ) : (
             <div className="w-[90px] h-[90px] rounded-full bg-gray-100 flex items-center justify-center">
               <span className="text-gray-400 text-xs text-center leading-tight">Puan<br/>Yok</span>
@@ -152,6 +184,15 @@ function EvKarti({ ev, kriterler, onSil }) {
           )}
         </div>
       </div>
+      {sablonSkorlari.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {sablonSkorlari.map(({ sablon, skor }) => (
+            <p key={sablon.id} className="text-xs text-gray-600">
+              {sablon.ad} şablonu: <span className={`font-semibold ${sinif.text}`}>{skor.yuzde}</span>
+            </p>
+          ))}
+        </div>
+      )}
       <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-50">
         <Link to={`/ev/${ev.id}`} className="btn-primary flex-1 text-center text-sm flex items-center justify-center gap-1">
           Değerlendir
@@ -169,7 +210,7 @@ function EvKarti({ ev, kriterler, onSil }) {
 }
 
 export default function Dashboard() {
-  const { evler, kriterler, evEkle, evSil } = useApp()
+  const { evler, kriterler, sablonlar, evEkle, evSil, hazir } = useApp()
   const [modalAcik, setModalAcik] = useState(false)
   const [silOnay, setSilOnay] = useState(null)
 
@@ -184,6 +225,10 @@ export default function Dashboard() {
   }
 
   const aktifKriterler = kriterler.filter(k => k.aktif)
+
+  if (!hazir) {
+    return <div className="card text-sm text-gray-500">Yükleniyor...</div>
+  }
 
   return (
     <div>
@@ -218,6 +263,7 @@ export default function Dashboard() {
               key={ev.id}
               ev={ev}
               kriterler={aktifKriterler}
+              sablonlar={sablonlar}
               onSil={handleSil}
             />
           ))}
@@ -234,6 +280,7 @@ export default function Dashboard() {
         <EvEkleModal
           onKapat={() => setModalAcik(false)}
           onEkle={evEkle}
+          sablonlar={sablonlar}
         />
       )}
     </div>

@@ -1,9 +1,10 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Home, Settings, BarChart2, GitCompare } from 'lucide-react'
+import { Home, Settings, GitCompare, Layers } from 'lucide-react'
 
 const navItems = [
   { to: '/', icon: Home, label: 'Evlerim' },
   { to: '/kriterler', icon: Settings, label: 'Kriterler' },
+  { to: '/sablonlar', icon: Layers, label: 'Şablonlar' },
   { to: '/karsilastirma', icon: GitCompare, label: 'Karşılaştır' },
 ]
 

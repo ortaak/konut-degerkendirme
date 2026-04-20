@@ -1,105 +1,86 @@
-import { createContext, useContext, useEffect, useState } from 'react'
-import { VARSAYILAN_KRITERLER } from '../data/kriterler'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { api } from '../services/api'
 
 const AppContext = createContext(null)
 
-function yukle(key, varsayilan) {
-  try {
-    const veri = localStorage.getItem(key)
-    return veri ? JSON.parse(veri) : varsayilan
-  } catch {
-    return varsayilan
-  }
-}
-
-function kaydet(key, veri) {
-  localStorage.setItem(key, JSON.stringify(veri))
-}
-
 export function AppProvider({ children }) {
-  const [kriterler, setKriterler] = useState(() =>
-    yukle('kriterler', VARSAYILAN_KRITERLER.map(k => ({
-      ...k,
-      agirlik: k.varsayilanAgirlik,
-      aktif: true,
-    })))
-  )
-  const [evler, setEvler] = useState(() => yukle('evler', []))
+  const [kriterler, setKriterler] = useState([])
+  const [sablonlar, setSablonlar] = useState([])
+  const [evler, setEvler] = useState([])
+  const [hazir, setHazir] = useState(false)
 
-  useEffect(() => { kaydet('kriterler', kriterler) }, [kriterler])
-  useEffect(() => { kaydet('evler', evler) }, [evler])
+  const yukle = async () => {
+    const data = await api.bootstrap()
+    setKriterler(data.kriterler || [])
+    setSablonlar(data.sablonlar || [])
+    setEvler(data.evler || [])
+    setHazir(true)
+  }
 
-  const kriterEkle = (yeniKriter) => {
-    const kriter = {
-      ...yeniKriter,
-      id: 'ozel_' + Date.now(),
-      agirlik: yeniKriter.agirlik || 3,
-      aktif: true,
-    }
+  useEffect(() => { yukle() }, [])
+
+  const kriterEkle = async (yeniKriter) => {
+    const kriter = await api.kriterEkle(yeniKriter)
     setKriterler(prev => [...prev, kriter])
     return kriter
   }
 
-  const kriterGuncelle = (id, degisiklikler) => {
+  const kriterGuncelle = async (id, degisiklikler) => {
+    await api.kriterGuncelle(id, degisiklikler)
     setKriterler(prev => prev.map(k => k.id === id ? { ...k, ...degisiklikler } : k))
   }
 
-  const kriterSil = (id) => {
+  const kriterSil = async (id) => {
+    await api.kriterSil(id)
     setKriterler(prev => prev.filter(k => k.id !== id))
+    setSablonlar(prev => prev.map(s => ({ ...s, kriterIds: (s.kriterIds || []).filter(k => k !== id) })))
   }
 
-  const evEkle = (ev) => {
-    const yeniEv = {
-      ...ev,
-      id: 'ev_' + Date.now(),
-      olusturulmaTarihi: new Date().toISOString(),
-      puanlar: {},
-      notlar: {},
-    }
+  const kriterleriSifirla = async () => {
+    const data = await api.kriterleriSifirla()
+    setKriterler(data.kriterler || [])
+    setSablonlar(data.sablonlar || [])
+    setEvler(data.evler || [])
+  }
+
+  const sablonEkle = async (payload) => { const s = await api.sablonEkle(payload); setSablonlar(prev => [...prev, s]); return s }
+  const sablonGuncelle = async (id, payload) => { await api.sablonGuncelle(id, payload); setSablonlar(prev => prev.map(s => s.id === id ? { ...s, ...payload } : s)) }
+  const sablonSil = async (id) => { await api.sablonSil(id); setSablonlar(prev => prev.filter(s => s.id !== id)); setEvler(prev => prev.map(e => ({ ...e, templateIds: (e.templateIds || []).filter(t => t !== id), puanlarByTemplate: Object.fromEntries(Object.entries(e.puanlarByTemplate || {}).filter(([k]) => Number(k) !== id)) }))) }
+
+  const evEkle = async (ev) => {
+    const yeniEv = await api.evEkle(ev)
     setEvler(prev => [yeniEv, ...prev])
     return yeniEv
   }
 
-  const evGuncelle = (id, degisiklikler) => {
+  const evGuncelle = async (id, degisiklikler) => {
+    await api.evGuncelle(id, degisiklikler)
     setEvler(prev => prev.map(e => e.id === id ? { ...e, ...degisiklikler } : e))
   }
 
-  const evSil = (id) => {
+  const evSil = async (id) => {
+    await api.evSil(id)
     setEvler(prev => prev.filter(e => e.id !== id))
   }
 
-  const puanKaydet = (evId, kriterKayitlar) => {
-    setEvler(prev => prev.map(e =>
-      e.id === evId
-        ? { ...e, puanlar: { ...e.puanlar, ...kriterKayitlar } }
-        : e
-    ))
+  const evSablonlariGuncelle = async (evId, templateIds) => {
+    await api.evSablonlariGuncelle(evId, { templateIds })
+    setEvler(prev => prev.map(e => e.id === evId ? { ...e, templateIds } : e))
   }
 
-  const kriterleriSifirla = () => {
-    setKriterler(VARSAYILAN_KRITERLER.map(k => ({
-      ...k,
-      agirlik: k.varsayilanAgirlik,
-      aktif: true,
-    })))
+  const puanKaydet = async (evId, templateId, kriterKayitlar) => {
+    await api.puanKaydet(evId, { templateId, kriterKayitlar })
+    setEvler(prev => prev.map(e => e.id !== evId ? e : { ...e, puanlarByTemplate: { ...(e.puanlarByTemplate || {}), [templateId]: { ...((e.puanlarByTemplate || {})[templateId] || {}), ...kriterKayitlar } } }))
   }
 
-  return (
-    <AppContext.Provider value={{
-      kriterler,
-      evler,
-      kriterEkle,
-      kriterGuncelle,
-      kriterSil,
-      evEkle,
-      evGuncelle,
-      evSil,
-      puanKaydet,
-      kriterleriSifirla,
-    }}>
-      {children}
-    </AppContext.Provider>
-  )
+  const value = useMemo(() => ({
+    hazir, kriterler, sablonlar, evler,
+    kriterEkle, kriterGuncelle, kriterSil, kriterleriSifirla,
+    sablonEkle, sablonGuncelle, sablonSil,
+    evEkle, evGuncelle, evSil, evSablonlariGuncelle, puanKaydet,
+  }), [hazir, kriterler, sablonlar, evler])
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }
 
 export const useApp = () => {
